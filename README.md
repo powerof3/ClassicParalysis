@@ -21,8 +21,8 @@ SKSE plugin that makes all paralysis spells freeze the target in place
 
 ## Building
 ```
-git clone https://github.com/powerof3/Classic-Paralysis.git
-cd Classic-Paralysis
+git clone https://github.com/powerof3/ClassicParalysis.git
+cd ClassicParalysis
 cmake -B build -S .
 ```
 ## License
