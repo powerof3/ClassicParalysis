@@ -155,32 +155,39 @@ namespace Paralysis::Fixes
 
 	void Install()
 	{
-		REL::Relocation<std::uintptr_t> push_actor_away{ REL::ID(38858) };
-		stl::write_thunk_call<CanBePushed>(push_actor_away.address() + 0x7E);
+		REL::Relocation<std::uintptr_t> push_actor_away{ REL::ID(39895) };
+		stl::write_thunk_call<CanBePushed>(push_actor_away.address() + 0x68);
 
 #if 0
 		REL::Relocation<std::uintptr_t> stagger_actor{ REL::ID(38858) };
 		stl::write_thunk_call<CanBePushed>(stagger_actor.address() + 0x74);
 #endif
 
-		REL::Relocation<std::uintptr_t> start_kill_move{ REL::ID(37659) };
+		REL::Relocation<std::uintptr_t> start_kill_move{ REL::ID(39504) };
 		stl::write_thunk_call<CanBePushed>(start_kill_move.address() + 0x10);
 	}
 }
 
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* a_info)
+extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() {
+	SKSE::PluginVersionData v;
+	v.PluginVersion(Version::MAJOR);
+	v.PluginName("Classic Paralysis");
+	v.AuthorName("powerofthree");
+	v.UsesAddressLibrary(true);
+	v.CompatibleVersions({ SKSE::RUNTIME_LATEST });
+
+	return v;
+}();
+
+void InitializeLog()
 {
-#ifndef NDEBUG
-	auto sink = std::make_shared<spdlog::sinks::msvc_sink_mt>();
-#else
 	auto path = logger::log_directory();
 	if (!path) {
-		return false;
+		stl::report_and_fail("Failed to find standard logging directory"sv);
 	}
 
 	*path /= fmt::format(FMT_STRING("{}.log"), Version::PROJECT);
 	auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
-#endif
 
 	auto log = std::make_shared<spdlog::logger>("global log"s, std::move(sink));
 
@@ -195,27 +202,12 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a
 	spdlog::set_pattern("[%H:%M:%S] %v"s);
 
 	logger::info(FMT_STRING("{} v{}"), Version::PROJECT, Version::NAME);
-
-	a_info->infoVersion = SKSE::PluginInfo::kVersion;
-	a_info->name = "Classic Paralysis";
-	a_info->version = Version::MAJOR;
-
-	if (a_skse->IsEditor()) {
-		logger::critical("Loaded in editor, marking as incompatible"sv);
-		return false;
-	}
-
-	const auto ver = a_skse->RuntimeVersion();
-	if (ver < SKSE::RUNTIME_1_5_39) {
-		logger::critical(FMT_STRING("Unsupported runtime version {}"), ver.string());
-		return false;
-	}
-
-	return true;
 }
 
 extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
+	InitializeLog();
+	
 	logger::info("loaded plugin");
 
 	SKSE::Init(a_skse);
