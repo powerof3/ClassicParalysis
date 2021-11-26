@@ -1,184 +1,230 @@
-﻿#include "version.h"
+#include "Settings.h"
 
-
-namespace
+struct detail
 {
-	void ResetMovementController(RE::Actor* a_actor, float a_delta)
+	static void freeze(RE::Actor& a_actor)
 	{
-		using func_t = decltype(&ResetMovementController);
-		REL::Relocation<func_t> func{ REL::ID(36801) };
-		return func(a_actor, a_delta);
+		a_actor.PauseCurrentDialogue();
+
+		a_actor.InterruptCast(false);
+		a_actor.StopInteractingQuick(true);
+
+		const auto currentProcess = a_actor.currentProcess;
+		if (currentProcess) {
+			currentProcess->ClearMuzzleFlashes();
+		}
+
+		a_actor.boolFlags.reset(RE::Actor::BOOL_FLAGS::kShouldAnimGraphUpdate);
+
+		if (const auto charController = a_actor.GetCharController(); charController) {
+			charController->flags.set(RE::CHARACTER_FLAGS::kNotPushable);
+
+			charController->flags.reset(RE::CHARACTER_FLAGS::kRecordHits);
+			charController->flags.reset(RE::CHARACTER_FLAGS::kHitFlags);
+		}
+
+		a_actor.EnableAI(false);
+	}
+
+	static void unfreeze(RE::Actor& a_actor)
+	{
+		a_actor.boolFlags.set(RE::Actor::BOOL_FLAGS::kShouldAnimGraphUpdate);
+
+		if (const auto charController = a_actor.GetCharController(); charController) {
+			charController->flags.reset(RE::CHARACTER_FLAGS::kNotPushable);
+
+			charController->flags.set(RE::CHARACTER_FLAGS::kRecordHits);
+			charController->flags.set(RE::CHARACTER_FLAGS::kHitFlags);
+		}
+
+		a_actor.EnableAI(true);
+	}
+
+	static bool is_invalid_effect(RE::ParalysisEffect& a_this)
+	{
+		const auto mgef = a_this.GetBaseObject();
+		if (mgef) {
+			const auto settings = Settings::GetSingleton();
+			if (mgef->HasKeywordString("MagicDamageFrost") && !settings->frostSpells || !settings->paralysisSpells) {
+				return true;
+			}
+		}
+		return false;
+	}
+};
+
+namespace Paralysis
+{
+
+	static inline RE::FormID SaadiaID{ 0x000D7505 };
+	
+	struct Start
+	{
+		static void thunk(RE::ParalysisEffect* a_this)
+		{
+			if (detail::is_invalid_effect(*a_this)) {
+				func(a_this);
+					
+				return;
+			}
+
+			const auto target = a_this->target;
+			const auto ref = target ? target->GetTargetStatsObject() : nullptr;
+			const auto actor = ref ? ref->As<RE::Actor>() : nullptr;
+
+			if (actor) {
+				if (actor->GetFormID() == SaadiaID) {
+					func(a_this);
+				} else if (!actor->IsDead()) {
+					if (!actor->IsPlayerRef()) {
+						detail::freeze(*actor);
+					} else {
+						actor->SetLifeState(RE::ACTOR_LIFE_STATE::kRestrained);
+					}
+				}
+			}
+		}
+		static inline REL::Relocation<decltype(&thunk)> func;
+	};
+
+	struct Finish
+	{
+		static void thunk(RE::ParalysisEffect* a_this)
+		{
+			if (detail::is_invalid_effect(*a_this)) {
+				func(a_this);
+
+				return;
+			}
+			
+			const auto target = a_this->target;
+			const auto ref = target ? target->GetTargetStatsObject() : nullptr;
+			const auto actor = ref ? ref->As<RE::Actor>() : nullptr;
+
+			if (actor) {
+				if (actor->GetFormID() == SaadiaID) {
+					func(a_this);
+				} else {
+					if (!actor->IsPlayerRef()) {
+						detail::unfreeze(*actor);
+					} else {
+						actor->SetLifeState(RE::ACTOR_LIFE_STATE::kAlive);
+					}
+					actor->StopMoving(1.0f);
+				}
+			}
+		}
+		static inline REL::Relocation<decltype(&thunk)> func;
+	};
+
+	void Install()
+	{
+		stl::write_vfunc<RE::ParalysisEffect, 0x14, Start>();
+		stl::write_vfunc<RE::ParalysisEffect, 0x15, Finish>();
 	}
 }
 
-
-class Paralysis
+namespace Paralysis::Fixes
 {
-public:
-	static void Hook()
+	struct CanBePushed
 	{
-		REL::Relocation<std::uintptr_t> vtbl{ REL::ID(257870) };  //Paralysis vtbl
-		_Start = vtbl.write_vfunc(0x014, Start);
-		logger::info("Hooked paralysis start.");
-
-		_Stop = vtbl.write_vfunc(0x015, Stop);
-		logger::info("Hooked paralysis stop.");
-	}
-
-private:
-	static void Start(RE::ParalysisEffect* a_this)
-	{
-		using Flags = RE::CHARACTER_FLAGS;
-		using BOOL_BITS = RE::Actor::BOOL_BITS;
-
-		if (const auto target = a_this->target; target) {
-			const auto ref = target->GetTargetStatsObject();
-			const auto actor = ref ? ref->As<RE::Actor>() : nullptr;
-			if (actor && !actor->IsDead()) {
-				if (!actor->IsPlayerRef()) {
-					actor->PauseCurrentDialogue();
-					actor->StopSelectedSpells();
-					actor->EnableAI(false);
-				} else {
-					actor->UpdateLifeState(RE::ACTOR_LIFE_STATE::kRestrained);
-				}
-				ResetMovementController(actor, 1.0f);
+		static bool thunk(RE::Actor* a_actor)
+		{
+			const auto result = func(a_actor);
+			if (result && !a_actor->IsAIEnabled()) {
+				detail::unfreeze(*a_actor);
 			}
+			return result;
 		}
-	}
-	using Start_t = decltype(&RE::ParalysisEffect::Unk_14);	 // 014
-	static inline REL::Relocation<Start_t> _Start;
+		static inline REL::Relocation<decltype(&thunk)> func;
+	};
 
-
-	static void Stop(RE::ParalysisEffect* a_this)
+	struct GetProcessLevel
 	{
-		using Flags = RE::CHARACTER_FLAGS;
-		using BOOL_BITS = RE::Actor::BOOL_BITS;
-
-		if (const auto target = a_this->target; target) {
-			const auto ref = target->GetTargetStatsObject();
-			const auto actor = ref ? ref->As<RE::Actor>() : nullptr;
-			if (actor) {
-				if (!actor->IsPlayerRef()) {
-					actor->EnableAI(true);
-				} else {
-					actor->UpdateLifeState(RE::ACTOR_LIFE_STATE::kAlive);
-				}
-				ResetMovementController(actor, 1.0f);
-			}
-		}
-	}
-	using Stop_t = decltype(&RE::ParalysisEffect::Unk_15);	// 015
-	static inline REL::Relocation<Stop_t> _Stop;
-};
-
-
-class ParalysisFixes
-{
-public:
-	static void Hook()
-	{
-		auto& trampoline = SKSE::GetTrampoline();
-		REL::Relocation<std::uintptr_t> PushActorAway{ REL::ID(38858) };
-		_CanBePushed = trampoline.write_call<5>(PushActorAway.address() + 0x7E, CanBePushed);
-
-		/*REL::Relocation<std::uintptr_t> StaggerActor{ REL::ID(36700) };
-		_CanBeStaggered = trampoline.write_call<5>(StaggerActor.address() + 0x74, CanBeStaggered);*/
-	}
-
-private:
-	static bool CanBePushed(RE::Actor* a_actor)
-	{
-		const auto result = _CanBePushed(a_actor);
-		if (result) {
+		static std::int32_t thunk(RE::Actor* a_actor)
+		{
+			const auto processLevel = func(a_actor);
 			if (!a_actor->IsAIEnabled()) {
-				a_actor->EnableAI(true);
-				ResetMovementController(a_actor, 1.0f);
+				detail::unfreeze(*a_actor);
+				return -1;
 			}
+			return processLevel;
 		}
-		return result;
-	}
-	static inline REL::Relocation<decltype(CanBePushed)> _CanBePushed;
+		static inline REL::Relocation<decltype(&thunk)> func;
+	};
 
-
-	static bool CanBeStaggered(RE::Actor* a_actor)
+	void Install()
 	{
-		const auto result = _CanBeStaggered(a_actor);
-		if (result) {
-			if (!a_actor->IsAIEnabled()) {
-				a_actor->EnableAI(true);
-				ResetMovementController(a_actor, 1.0f);
-			}
-		}
-		return result;
+		REL::Relocation<std::uintptr_t> push_actor_away{ REL::ID(38858) };
+		stl::write_thunk_call<CanBePushed>(push_actor_away.address() + 0x7E);
+
+#if 0
+		REL::Relocation<std::uintptr_t> stagger_actor{ REL::ID(38858) };
+		stl::write_thunk_call<CanBePushed>(stagger_actor.address() + 0x74);
+#endif
+
+		REL::Relocation<std::uintptr_t> start_kill_move{ REL::ID(37659) };
+		stl::write_thunk_call<CanBePushed>(start_kill_move.address() + 0x10);
 	}
-	static inline REL::Relocation<decltype(CanBeStaggered)> _CanBeStaggered;
-};
+}
 
-
-extern "C" DLLEXPORT bool APIENTRY SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* a_info)
+extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* a_info)
 {
-	try {
-		auto path = logger::log_directory().value() / "po3_ClassicParalysis.log";
-		auto log = spdlog::basic_logger_mt("global log", path.string(), true);
-		log->flush_on(spdlog::level::info);
+#ifndef NDEBUG
+	auto sink = std::make_shared<spdlog::sinks::msvc_sink_mt>();
+#else
+	auto path = logger::log_directory();
+	if (!path) {
+		return false;
+	}
+
+	*path /= fmt::format(FMT_STRING("{}.log"), Version::PROJECT);
+	auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
+#endif
+
+	auto log = std::make_shared<spdlog::logger>("global log"s, std::move(sink));
 
 #ifndef NDEBUG
-		log->set_level(spdlog::level::debug);
-		log->sinks().push_back(std::make_shared<spdlog::sinks::msvc_sink_mt>());
+	log->set_level(spdlog::level::trace);
 #else
-		log->set_level(spdlog::level::info);
-
+	log->set_level(spdlog::level::info);
+	log->flush_on(spdlog::level::info);
 #endif
-		set_default_logger(log);
-		spdlog::set_pattern("[%H:%M:%S] %v");
 
-		logger::info("po3_ClassicParalysis v{}", VERSION_VERSTRING);
+	spdlog::set_default_logger(std::move(log));
+	spdlog::set_pattern("[%H:%M:%S] %v"s);
 
-		a_info->infoVersion = SKSE::PluginInfo::kVersion;
-		a_info->name = "Classic Paralysis";
-		a_info->version = VERSION_MAJOR;
+	logger::info(FMT_STRING("{} v{}"), Version::PROJECT, Version::NAME);
 
-		if (a_skse->IsEditor()) {
-			logger::critical("Loaded in editor, marking as incompatible");
-			return false;
-		}
+	a_info->infoVersion = SKSE::PluginInfo::kVersion;
+	a_info->name = "Classic Paralysis";
+	a_info->version = Version::MAJOR;
 
-		const auto ver = a_skse->RuntimeVersion();
-		if (ver < SKSE::RUNTIME_1_5_39) {
-			logger::critical("Unsupported runtime version {}", ver.string());
-			return false;
-		}
-	} catch (const std::exception& e) {
-		logger::critical(e.what());
+	if (a_skse->IsEditor()) {
+		logger::critical("Loaded in editor, marking as incompatible"sv);
 		return false;
-	} catch (...) {
-		logger::critical("caught unknown exception");
+	}
+
+	const auto ver = a_skse->RuntimeVersion();
+	if (ver < SKSE::RUNTIME_1_5_39) {
+		logger::critical(FMT_STRING("Unsupported runtime version {}"), ver.string());
 		return false;
 	}
 
 	return true;
 }
 
-
-extern "C" DLLEXPORT bool APIENTRY SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
+extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
-	try {
-		logger::info("po3_ClassicParalysis loaded");
+	logger::info("loaded plugin");
 
-		Init(a_skse);
-		SKSE::AllocTrampoline(1 << 5);
+	SKSE::Init(a_skse);
+	SKSE::AllocTrampoline(28);
 
-		Paralysis::Hook();
-		ParalysisFixes::Hook();
-
-	} catch (const std::exception& e) {
-		logger::critical(e.what());
-		return false;
-	} catch (...) {
-		logger::critical("caught unknown exception");
-		return false;
-	}
+	Settings::GetSingleton()->Load();
+	
+	Paralysis::Install();
+	Paralysis::Fixes::Install();
 
 	return true;
 }

@@ -1,0 +1,14 @@
+{
+  "name": "classic-paralysis",
+  "version-string": "3.2.0",
+  "description": "Classic Paralysis",
+  "homepage": "",
+  "license": "MIT",
+  "dependencies": [
+    "boost-stl-interfaces",
+    "rsm-binary-io",
+    "simpleini",
+    "spdlog",
+    "xbyak"
+  ]
+}
