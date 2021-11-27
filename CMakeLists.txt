@@ -33,7 +33,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STR
 
 project(
 	po3_ClassicParalysis
-	VERSION 3.2.0
+	VERSION 3.2.1
 	LANGUAGES CXX
 )
 
