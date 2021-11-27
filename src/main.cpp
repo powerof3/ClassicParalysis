@@ -24,6 +24,8 @@ struct detail
 		}
 
 		a_actor.EnableAI(false);
+
+		a_actor.StopMoving(1.0f);
 	}
 
 	static void unfreeze(RE::Actor& a_actor)
@@ -131,7 +133,7 @@ namespace Paralysis::Fixes
 		static bool thunk(RE::Actor* a_actor)
 		{
 			const auto result = func(a_actor);
-			if (result && !a_actor->IsAIEnabled()) {
+			if (result && a_actor && !a_actor->IsAIEnabled()) {
 				detail::unfreeze(*a_actor);
 			}
 			return result;
@@ -144,7 +146,7 @@ namespace Paralysis::Fixes
 		static std::int32_t thunk(RE::Actor* a_actor)
 		{
 			const auto processLevel = func(a_actor);
-			if (!a_actor->IsAIEnabled()) {
+			if (a_actor && !a_actor->IsAIEnabled()) {
 				detail::unfreeze(*a_actor);
 				return -1;
 			}
@@ -163,8 +165,8 @@ namespace Paralysis::Fixes
 		stl::write_thunk_call<CanBePushed>(stagger_actor.address() + 0x74);
 #endif
 
-		REL::Relocation<std::uintptr_t> start_kill_move{ REL::ID(39504) };
-		stl::write_thunk_call<CanBePushed>(start_kill_move.address() + 0x10);
+		REL::Relocation<std::uintptr_t> start_kill_move{ REL::ID(38613) };
+		stl::write_thunk_call<GetProcessLevel>(start_kill_move.address() + 0x10);
 	}
 }
 
