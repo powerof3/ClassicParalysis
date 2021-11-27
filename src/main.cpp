@@ -44,10 +44,12 @@ struct detail
 
 	static bool is_invalid_effect(RE::ParalysisEffect& a_this)
 	{
-		const auto mgef = a_this.GetBaseObject();
-		if (mgef) {
+		const auto spell = a_this.spell;
+		if (spell) {
+			static auto keyword_frost = RE::TESForm::LookupByEditorID<RE::BGSKeyword>("MagicDamageFrost");
+			
 			const auto settings = Settings::GetSingleton();
-			if (mgef->HasKeywordString("MagicDamageFrost") && !settings->frostSpells || !settings->paralysisSpells) {
+			if (spell->HasKeyword(keyword_frost) && !settings->frostSpells || !settings->paralysisSpells) {
 				return true;
 			}
 		}
