@@ -4,6 +4,7 @@ namespace ClassicParalysis
 {
 	namespace detail
 	{
+		void clear_actor_velocity(RE::Actor* a_actor);
 		void freeze(RE::Actor* a_actor);
 		void unfreeze(RE::Actor* a_actor);
 		bool do_not_freeze(RE::Actor* a_actor);

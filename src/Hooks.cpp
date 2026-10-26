@@ -3,6 +3,19 @@
 
 namespace ClassicParalysis
 {
+	void detail::clear_actor_velocity(RE::Actor* a_actor)
+	{
+		if (!a_actor) {
+			return;
+		}
+
+		if (const auto charController = a_actor->GetCharController()) {
+			charController->SetLinearVelocityImpl(0.0f);
+			charController->initialVelocity = 0.0f;
+			charController->velocityTime = 0.0f;
+		}
+	}
+
 	void detail::freeze(RE::Actor* a_actor)
 	{
 		a_actor->StopCurrentDialogue();
@@ -18,9 +31,9 @@ namespace ClassicParalysis
 		if (const auto charController = a_actor->GetCharController()) {
 			charController->flags.set(RE::CHARACTER_FLAGS::kNotPushable, RE::CHARACTER_FLAGS::kNoCharacterCollisions);
 			charController->flags.reset(RE::CHARACTER_FLAGS::kRecordHits, RE::CHARACTER_FLAGS::kHitFlags, RE::CHARACTER_FLAGS::kHitDamage);
-			charController->SetLinearVelocityImpl(0.0f);
 		}
 
+		clear_actor_velocity(a_actor);
 		a_actor->EnableAI(false);
 		a_actor->StopMoving(1.0f);
 	}
@@ -32,9 +45,9 @@ namespace ClassicParalysis
 		if (const auto charController = a_actor->GetCharController()) {
 			charController->flags.reset(RE::CHARACTER_FLAGS::kNotPushable, RE::CHARACTER_FLAGS::kNoCharacterCollisions);
 			charController->flags.set(RE::CHARACTER_FLAGS::kRecordHits, RE::CHARACTER_FLAGS::kHitFlags, RE::CHARACTER_FLAGS::kHitDamage);
-			charController->SetLinearVelocityImpl(0.0f);
 		}
 
+		clear_actor_velocity(a_actor);
 		a_actor->EnableAI(true);
 	}
 
@@ -116,10 +129,39 @@ namespace ClassicParalysis
 			static inline constexpr std::size_t            idx = 0x15;
 		};
 
+		struct Update
+		{
+			static void thunk(RE::ParalysisEffect* a_this, float a_delta)
+			{
+				if (detail::is_invalid_effect(a_this)) {
+					return func(a_this, a_delta);
+				}
+
+				const auto target = a_this->target;
+				const auto ref = target ? target->GetTargetStatsObject() : nullptr;
+				const auto actor = ref ? ref->As<RE::Actor>() : nullptr;
+
+				if (actor) {
+					if (detail::do_not_freeze(actor)) {
+						return func(a_this, a_delta);
+					} else if (!actor->IsAIEnabled()) {
+						if (!actor->IsPlayerRef()) {
+							detail::clear_actor_velocity(actor);
+						}
+					}
+				}
+
+				func(a_this, a_delta);
+			}
+			static inline REL::Relocation<decltype(thunk)> func;
+			static inline constexpr std::size_t            idx = 0x04;
+		};
+
 		void Install()
 		{
 			stl::write_vfunc<RE::ParalysisEffect, Start>();
 			stl::write_vfunc<RE::ParalysisEffect, Finish>();
+			stl::write_vfunc<RE::ParalysisEffect, Update>();
 		}
 	}
 
